@@ -1,19 +1,29 @@
 """Entry point for the Hybrid RAG backend API."""
 
+import logging
+
 from fastapi import FastAPI
 
+from app.api import routes_documents
 from app.core.config import get_settings
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+)
 
 settings = get_settings()
 
 app = FastAPI(
     title="Hybrid RAG API",
     description="Grounded question answering over uploaded documents.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
+app.include_router(routes_documents.router)
 
-@app.get("/health")
+
+@app.get("/health", tags=["health"])
 def health() -> dict:
     """Check the server is running and show which features are switched on."""
     return {
@@ -28,3 +38,4 @@ def health() -> dict:
         "neo4j_configured": bool(settings.neo4j_uri),
         "llm_configured": bool(settings.openai_api_key.get_secret_value()),
     }
+
