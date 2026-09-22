@@ -10,3 +10,13 @@ python-dotenv
 python-multipart
 pypdf
 python-docx
+
+fastapi
+uvicorn[standard]
+pydantic-settings
+python-dotenv
+python-multipart
+pypdf
+python-docx
+sentence-transformers
+numpy
