@@ -1,7 +1,8 @@
-"""The document ingestion pipeline: validate, hash, load, chunk, register."""
-from app.vectorstore.base import VectorStore
+"""The document ingestion pipeline: validate, hash, load, chunk, index, register."""
+
 import logging
 from pathlib import Path
+from typing import Protocol
 
 from app.ingestion.chunking import chunk_pages
 from app.ingestion.loaders import (
@@ -16,10 +17,17 @@ from app.ingestion.store import (
     compute_hash,
     new_document_id,
 )
+from app.vectorstore.base import VectorStore
 
 logger = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
+
+
+class RefreshableIndex(Protocol):
+    """Anything that can rebuild itself after documents change."""
+
+    def refresh(self) -> int: ...
 
 
 class FileTooLargeError(Exception):
@@ -27,17 +35,19 @@ class FileTooLargeError(Exception):
 
 
 class IngestionPipeline:
-    """Turns an uploaded file into stored, chunked, citable content."""
+    """Turns an uploaded file into stored, indexed, citable content."""
 
     def __init__(
         self,
         store: DocumentStore,
         vector_store: VectorStore | None,
+        bm25_index: RefreshableIndex | None,
         chunk_size: int,
         chunk_overlap: int,
     ) -> None:
         self.store = store
         self.vector_store = vector_store
+        self.bm25_index = bm25_index
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -100,6 +110,11 @@ class IngestionPipeline:
             page_count=len(pages),
             stored_path=stored_path,
         )
+
+        # 6. Rebuild the keyword index now that the registry has changed
+        if self.bm25_index is not None:
+            self.bm25_index.refresh()
+
         logger.info(
             "Ingested %s: %d pages, %d chunks", filename, len(pages), len(chunks)
         )
@@ -109,4 +124,7 @@ class IngestionPipeline:
         """Delete a document everywhere it was stored."""
         if self.vector_store is not None:
             self.vector_store.delete_document(document_id)
-        return self.store.delete_document(document_id)
+        removed = self.store.delete_document(document_id)
+        if removed and self.bm25_index is not None:
+            self.bm25_index.refresh()
+        return removed

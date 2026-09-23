@@ -4,10 +4,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.dependencies import (
+    get_bm25_index,
     get_document_store,
     get_ingestion_pipeline,
     get_vector_store,
 )
+from app.core.indexes import BM25Index
 from app.ingestion.pipeline import IngestionPipeline
 from app.ingestion.store import DocumentStore
 from app.main import app
@@ -25,15 +27,18 @@ def client(tmp_path):
     vector_store = FaissVectorStore(
         index_dir=tmp_path / "faiss", embedding_model=get_embedding_model()
     )
+    bm25_index = BM25Index(store)
     pipeline = IngestionPipeline(
         store=store,
         vector_store=vector_store,
+        bm25_index=bm25_index,
         chunk_size=400,
         chunk_overlap=60,
     )
 
     app.dependency_overrides[get_document_store] = lambda: store
     app.dependency_overrides[get_vector_store] = lambda: vector_store
+    app.dependency_overrides[get_bm25_index] = lambda: bm25_index
     app.dependency_overrides[get_ingestion_pipeline] = lambda: pipeline
 
     with TestClient(app) as test_client:

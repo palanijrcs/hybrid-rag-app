@@ -48,10 +48,18 @@ class RetrievedChunk(BaseModel):
 
 class SearchResponse(BaseModel):
     query: str
+    method: str
     results: list[RetrievedChunk] = Field(default_factory=list)
+
+
+class ComparisonResponse(BaseModel):
+    query: str
+    vector: list[RetrievedChunk] = Field(default_factory=list)
+    bm25: list[RetrievedChunk] = Field(default_factory=list)
 
 
 class IndexStats(BaseModel):
     documents: int
     chunks: int
     vectors: int
+    bm25_chunks: int

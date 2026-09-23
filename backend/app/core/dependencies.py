@@ -1,7 +1,7 @@
 """Shared objects handed to the API routes."""
 
 from functools import lru_cache
-
+from app.core.indexes import BM25Index
 from app.core.config import get_settings
 from app.ingestion.pipeline import IngestionPipeline
 from app.ingestion.store import DocumentStore
@@ -37,3 +37,6 @@ def get_ingestion_pipeline() -> IngestionPipeline:
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
     )
+@lru_cache
+def get_bm25_index() -> BM25Index:
+    return BM25Index(get_document_store())
