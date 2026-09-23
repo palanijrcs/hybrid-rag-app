@@ -4,7 +4,7 @@ import logging
 
 from fastapi import FastAPI
 
-from app.api import routes_documents
+from app.api import routes_documents, routes_search
 from app.core.config import get_settings
 
 logging.basicConfig(
@@ -21,6 +21,7 @@ app = FastAPI(
 )
 
 app.include_router(routes_documents.router)
+app.include_router(routes_search.router)
 
 
 @app.get("/health", tags=["health"])

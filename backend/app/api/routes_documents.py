@@ -82,9 +82,9 @@ def get_document(
 @router.delete("/{document_id}", response_model=DeleteResponse)
 def delete_document(
     document_id: str,
-    store: DocumentStore = Depends(get_document_store),
+    pipeline: IngestionPipeline = Depends(get_ingestion_pipeline),
 ) -> DeleteResponse:
-    """Delete a document and its chunks."""
-    if not store.delete_document(document_id):
+    """Delete a document, its chunks and its vectors."""
+    if not pipeline.remove(document_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
     return DeleteResponse(document_id=document_id, deleted=True)

@@ -34,3 +34,24 @@ class DeleteResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class RetrievedChunk(BaseModel):
+    chunk_id: str
+    document_id: str
+    document_name: str
+    page_number: int | None = None
+    text: str
+    score: float
+    retriever: str
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[RetrievedChunk] = Field(default_factory=list)
+
+
+class IndexStats(BaseModel):
+    documents: int
+    chunks: int
+    vectors: int

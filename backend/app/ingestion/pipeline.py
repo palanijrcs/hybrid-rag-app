@@ -1,5 +1,5 @@
 """The document ingestion pipeline: validate, hash, load, chunk, register."""
-
+from app.vectorstore.base import VectorStore
 import logging
 from pathlib import Path
 
@@ -30,9 +30,14 @@ class IngestionPipeline:
     """Turns an uploaded file into stored, chunked, citable content."""
 
     def __init__(
-        self, store: DocumentStore, chunk_size: int, chunk_overlap: int
+        self,
+        store: DocumentStore,
+        vector_store: VectorStore | None,
+        chunk_size: int,
+        chunk_overlap: int,
     ) -> None:
         self.store = store
+        self.vector_store = vector_store
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -77,7 +82,16 @@ class IngestionPipeline:
             stored_path.unlink(missing_ok=True)  # don't leave orphan files
             raise
 
-        # 4. Register
+        # 4. Index the chunks for semantic search
+        if self.vector_store is not None and chunks:
+            try:
+                self.vector_store.add_chunks([c.to_dict() for c in chunks])
+            except Exception:
+                logger.exception("Indexing failed for %s; rolling back.", filename)
+                stored_path.unlink(missing_ok=True)
+                raise
+
+        # 5. Register
         record = self.store.register(
             document_id=document_id,
             filename=filename,
@@ -90,3 +104,9 @@ class IngestionPipeline:
             "Ingested %s: %d pages, %d chunks", filename, len(pages), len(chunks)
         )
         return record
+
+    def remove(self, document_id: str) -> bool:
+        """Delete a document everywhere it was stored."""
+        if self.vector_store is not None:
+            self.vector_store.delete_document(document_id)
+        return self.store.delete_document(document_id)

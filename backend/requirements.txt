@@ -20,3 +20,4 @@ pypdf
 python-docx
 sentence-transformers
 numpy
+faiss-cpu
