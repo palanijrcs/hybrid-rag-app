@@ -21,3 +21,4 @@ python-docx
 sentence-transformers
 numpy
 faiss-cpu
+rank-bm25
