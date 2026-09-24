@@ -76,3 +76,28 @@ def test_delete_also_refreshes_bm25(client):
     document_id = upload(client, PENSION).json()["document"]["document_id"]
     client.delete(f"/documents/{document_id}")
     assert client.get("/index/stats").json()["bm25_chunks"] == 0
+def test_hybrid_search_uses_both_retrievers(client):
+    upload(client, PENSION)
+    upload(client, BUNK)
+    body = client.get("/search/hybrid", params={"q": "pension for farmers"}).json()
+    assert body["fusion_method"] == "rrf"
+    assert sorted(body["retrievers_used"]) == ["bm25", "vector"]
+    assert body["counts"]["vector"] > 0
+    assert body["results"]
+
+
+def test_hybrid_results_show_their_provenance(client):
+    upload(client, PENSION)
+    top = client.get("/search/hybrid", params={"q": "pension"}).json()["results"][0]
+    assert top["retrievers"]
+    assert top["original_scores"]
+    assert top["ranks"]
+
+
+def test_hybrid_deduplicates_chunks(client):
+    upload(client, PENSION)
+    results = client.get("/search/hybrid", params={"q": "pension farmers"}).json()[
+        "results"
+    ]
+    chunk_ids = [r["chunk_id"] for r in results]
+    assert len(chunk_ids) == len(set(chunk_ids))

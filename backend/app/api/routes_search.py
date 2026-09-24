@@ -1,5 +1,8 @@
 """Search endpoints (a stepping stone towards full hybrid retrieval)."""
 
+from app.core.dependencies import get_hybrid_retriever
+from app.models.schemas import FusedResult, HybridSearchResponse
+from app.retrieval.hybrid_retriever import HybridRetriever
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.config import get_settings
@@ -79,4 +82,24 @@ def index_stats(
         chunks=sum(d.chunk_count for d in documents),
         vectors=vector_store.count(),
         bm25_chunks=bm25_index.count(),
+    )
+@router.get("/search/hybrid", response_model=HybridSearchResponse)
+def hybrid_search(
+    q: str = Query(..., min_length=1),
+    top_k: int | None = Query(None, ge=1, le=50),
+    retriever: HybridRetriever = Depends(get_hybrid_retriever),
+) -> HybridSearchResponse:
+    """Search every enabled retriever and return one fused, ranked list."""
+    per_retriever = retriever.retrieve_each(q)
+    from app.retrieval.fusion import fuse
+
+    fused = fuse(per_retriever, method=retriever.fusion_method)
+    limited = fused[:top_k] if top_k else fused
+
+    return HybridSearchResponse(
+        query=q,
+        fusion_method=retriever.fusion_method,
+        retrievers_used=retriever.enabled,
+        counts={name: len(hits) for name, hits in per_retriever.items()},
+        results=[FusedResult(**hit.__dict__) for hit in limited],
     )

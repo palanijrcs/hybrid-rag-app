@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     enable_bm25: bool = True
     enable_kg_retrieval: bool = True
     enable_reranker: bool = True
+    fusion_method: str = "rrf"
+    min_relevance_score: float = 0.0
+
 
     # API
     api_host: str = "0.0.0.0"

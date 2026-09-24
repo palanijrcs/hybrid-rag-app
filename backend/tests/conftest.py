@@ -1,4 +1,4 @@
-"""Shared test setup."""
+﻿"""Shared test setup."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.core.dependencies import (
     get_bm25_index,
     get_document_store,
+    get_hybrid_retriever,
     get_ingestion_pipeline,
     get_vector_store,
 )
@@ -13,6 +14,7 @@ from app.core.indexes import BM25Index
 from app.ingestion.pipeline import IngestionPipeline
 from app.ingestion.store import DocumentStore
 from app.main import app
+from app.retrieval.hybrid_retriever import HybridRetriever
 from app.vectorstore.embeddings import get_embedding_model
 from app.vectorstore.faiss_store import FaissVectorStore
 
@@ -28,6 +30,12 @@ def client(tmp_path):
         index_dir=tmp_path / "faiss", embedding_model=get_embedding_model()
     )
     bm25_index = BM25Index(store)
+    hybrid = HybridRetriever(
+        vector_retriever=vector_store,
+        bm25_retriever=bm25_index.retriever,
+        vector_top_k=10,
+        bm25_top_k=10,
+    )
     pipeline = IngestionPipeline(
         store=store,
         vector_store=vector_store,
@@ -39,6 +47,7 @@ def client(tmp_path):
     app.dependency_overrides[get_document_store] = lambda: store
     app.dependency_overrides[get_vector_store] = lambda: vector_store
     app.dependency_overrides[get_bm25_index] = lambda: bm25_index
+    app.dependency_overrides[get_hybrid_retriever] = lambda: hybrid
     app.dependency_overrides[get_ingestion_pipeline] = lambda: pipeline
 
     with TestClient(app) as test_client:

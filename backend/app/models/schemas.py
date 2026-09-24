@@ -63,3 +63,23 @@ class IndexStats(BaseModel):
     chunks: int
     vectors: int
     bm25_chunks: int
+
+
+class FusedResult(BaseModel):
+    chunk_id: str
+    document_id: str
+    document_name: str
+    page_number: int | None = None
+    text: str
+    score: float
+    retrievers: list[str]
+    original_scores: dict[str, float]
+    ranks: dict[str, int]
+
+
+class HybridSearchResponse(BaseModel):
+    query: str
+    fusion_method: str
+    retrievers_used: list[str]
+    counts: dict[str, int]
+    results: list[FusedResult] = Field(default_factory=list)
