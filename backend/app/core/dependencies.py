@@ -1,8 +1,9 @@
 """Shared objects handed to the API routes."""
 
 from functools import lru_cache
-from app.core.indexes import BM25Index
+
 from app.core.config import get_settings
+from app.core.indexes import BM25Index
 from app.ingestion.pipeline import IngestionPipeline
 from app.ingestion.store import DocumentStore
 from app.vectorstore.base import VectorStore
@@ -29,14 +30,17 @@ def get_vector_store() -> VectorStore:
 
 
 @lru_cache
+def get_bm25_index() -> BM25Index:
+    return BM25Index(get_document_store())
+
+
+@lru_cache
 def get_ingestion_pipeline() -> IngestionPipeline:
     settings = get_settings()
     return IngestionPipeline(
         store=get_document_store(),
         vector_store=get_vector_store(),
+        bm25_index=get_bm25_index(),
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
     )
-@lru_cache
-def get_bm25_index() -> BM25Index:
-    return BM25Index(get_document_store())
