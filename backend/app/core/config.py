@@ -7,7 +7,18 @@ from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root = hybrid-rag-app/ (three folders above this file)
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+def _find_project_root() -> Path:
+    """Works both on the host (repo root) and in Docker (/app)."""
+    here = Path(__file__).resolve()
+    # backend/app/core/config.py -> repo root is 3 levels up
+    candidate = here.parents[3]
+    if (candidate / ".env").exists() or (candidate / "docker-compose.yml").exists():
+        return candidate
+    # In the container the app is copied to /app
+    return Path("/app")
+
+
+PROJECT_ROOT = _find_project_root()
 
 
 class Settings(BaseSettings):

@@ -1,0 +1,22 @@
+﻿services:
+  backend:
+    build:
+      context: ./backend
+    container_name: hybrid-rag-backend
+    env_file:
+      - .env
+    environment:
+      UPLOAD_DIR: data/uploads
+      FAISS_INDEX_PATH: data/faiss
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+      - model-cache:/models
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+volumes:
+  model-cache:
