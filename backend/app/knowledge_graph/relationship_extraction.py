@@ -17,6 +17,55 @@ from .models import (
 )
 
 
+# ---------------------------------------------------------------- type rules
+# relation -> (allowed source types, allowed target types). None = any type.
+# Relations not listed (e.g. RELATED_TO, or custom ones) are not type-checked.
+_AGENT = {"Person", "Organization", "Company"}
+_ORG = {"Organization", "Company"}
+_THING = {"Organization", "Company", "Scheme", "Product", "Technology", "Location",
+          "Concept", "Event"}
+
+RELATION_TYPE_RULES: dict[str, tuple[set[str] | None, set[str] | None]] = {
+    "WORKS_FOR": ({"Person"}, _ORG),
+    "MANAGED_BY": (_ORG | {"Scheme", "Product", "Event", "Concept"}, _AGENT),
+    "FOUNDED_BY": (_ORG | {"Scheme"}, _AGENT),
+    "FOUNDED_ON": (_ORG | {"Scheme", "Event"}, {"Date"}),
+    "PRODUCES": (_ORG, {"Product", "Technology"}),
+    "LOCATED_IN": (_AGENT | {"Event", "Location"}, {"Location"}),
+    "HEADQUARTERED_IN": (_ORG, {"Location"}),
+    "USED_BY": ({"Technology", "Product", "Scheme"}, _AGENT),
+    "USES": (_AGENT, {"Technology", "Product", "Scheme"}),
+    "PART_OF": (_THING, _THING),
+    "OWNS": (_AGENT, _THING),
+    "SUBSIDIARY_OF": (_ORG, _ORG),
+    "PARTNERED_WITH": (_ORG, _ORG),
+    "COMPETES_WITH": (_ORG | {"Product"}, _ORG | {"Product"}),
+    "OCCURRED_ON": ({"Event"}, {"Date"}),
+    "OCCURRED_IN": ({"Event"}, {"Location"}),
+    "PARTICIPATED_IN": (_AGENT | {"Concept"}, {"Event", "Scheme"}),
+    "ELIGIBLE_FOR": (_AGENT | {"Concept"}, {"Scheme", "Product"}),
+    "PROVIDES": (_ORG | {"Scheme"}, _THING),
+    "FUNDED_BY": ({"Scheme", "Event", "Product", "Organization", "Company"}, _AGENT),
+}
+
+
+def type_rule_violation(rel_type: str, source_type: str, target_type: str) -> str | None:
+    rule = RELATION_TYPE_RULES.get(rel_type)
+    if rule is None:
+        return None
+    allowed_src, allowed_tgt = rule
+    if allowed_src is not None and source_type not in allowed_src:
+        return f"source_type_not_allowed:{rel_type}:{source_type}"
+    if allowed_tgt is not None and target_type not in allowed_tgt:
+        return f"target_type_not_allowed:{rel_type}:{target_type}"
+    return None
+
+
+def names_in_evidence(evidence: str, *names: str) -> bool:
+    ev = f" {canonical_key(evidence)} "
+    return all(f" {canonical_key(n)} " in ev for n in names)
+
+
 def normalize_relation_type(raw: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "_", raw.strip().upper()).strip("_")
 
@@ -65,6 +114,14 @@ def validate_relationships(
             raw.evidence, chunk_text, settings.kg_evidence_min_token_overlap
         ):
             reason = "evidence_not_in_chunk"
+        elif settings.kg_require_names_in_evidence and not names_in_evidence(
+            raw.evidence, src.name, tgt.name
+        ):
+            reason = "entities_not_named_in_evidence"
+        elif settings.kg_enforce_type_rules and (
+            violation := type_rule_violation(rtype, src.type, tgt.type)
+        ):
+            reason = violation
         if reason:
             rejected.append(Rejection(kind="relationship", item=raw.model_dump(), reason=reason))
             continue

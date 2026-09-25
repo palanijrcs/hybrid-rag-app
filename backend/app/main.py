@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from app.api import routes_documents, routes_search
 from app.core.config import get_settings
-from app.core.dependencies import get_neo4j_client
+from app.core.dependencies import get_graph_builder, get_neo4j_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +33,9 @@ def prepare_graph() -> None:
     if client.is_configured and client.verify():
         try:
             client.ensure_schema()
+            builder = get_graph_builder()
+            if builder is not None:
+                builder.ensure_schema()
         except Exception:
             logger.exception("Could not prepare the Neo4j schema.")
     else:

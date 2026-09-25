@@ -12,15 +12,22 @@ Extract ONLY what the chunk explicitly states. Never use outside knowledge. Neve
 ENTITIES
 - Allowed types: {entity_types}
 - "name" must be copied exactly as it appears in the chunk (surface form).
-- Skip pronouns and vague references ("the company", "he").
+- Skip pronouns and vague references ("the company", "he", "the scheme").
+- Use "Scheme" for government schemes, programmes, policies and plans.
+- Use "Concept" for groups of people named generically ("farmers", "beneficiaries").
 - "description": max 20 words, taken from the chunk. Empty string if none.
 
 RELATIONSHIPS
 - Allowed types: {relation_types}
 - "source" and "target" must exactly match names in your entities list.
-- Direction matters: Person WORKS_FOR Organization, Company PRODUCES Product,
-  Organization MANAGED_BY Person, Event OCCURRED_ON Date.
-- "evidence": a VERBATIM quote from the chunk (max 40 words) that states the relationship.
+- Direction and entity types must follow these rules (source -> target):
+{relation_rules}
+- Only extract a relationship the quote states DIRECTLY between those two entities.
+  Do not chain facts ("the fund is managed by X" does NOT mean "the scheme is managed by X").
+- Skip conditional or hypothetical statements ("if...", "may", "can opt to", "in case of").
+  "If the farmer is a beneficiary of X, he may..." does NOT state that farmers are eligible for X.
+- "evidence": a VERBATIM quote from the chunk (max 40 words) that states the relationship
+  and contains BOTH entity names exactly as written in your entities list.
 - "confidence": 0.0-1.0 — how explicitly the chunk states it.
 - If no allowed type fits, omit the relationship.
 
@@ -41,6 +48,19 @@ Section: {section}
 Return the JSON object now."""
 
 
+def _format_rules(relation_types: list[str]) -> str:
+    from .relationship_extraction import RELATION_TYPE_RULES
+
+    lines = []
+    for rel in relation_types:
+        rule = RELATION_TYPE_RULES.get(rel)
+        if rule is None:
+            continue
+        src, tgt = (", ".join(sorted(t)) if t else "any" for t in rule)
+        lines.append(f"  {rel}: [{src}] -> [{tgt}]")
+    return "\n".join(lines) or "  (none)"
+
+
 def build_messages(
     *,
     chunk_text: str,
@@ -56,6 +76,7 @@ def build_messages(
     system = EXTRACTION_SYSTEM_PROMPT.format(
         entity_types=", ".join(entity_types),
         relation_types=", ".join(relation_types),
+        relation_rules=_format_rules(relation_types),
         max_entities=max_entities,
         max_relationships=max_relationships,
     )

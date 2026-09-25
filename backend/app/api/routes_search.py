@@ -8,13 +8,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import get_settings
 from app.core.dependencies import (
     get_bm25_index,
+    get_graph_retriever,
     get_document_store,
     get_vector_store,
 )
 from app.core.indexes import BM25Index
 from app.ingestion.store import DocumentStore
+from app.knowledge_graph.graph_retriever import GraphRetriever
 from app.models.schemas import (
     ComparisonResponse,
+    GraphSearchResponse,
     IndexStats,
     RetrievedChunk,
     SearchResponse,
@@ -102,4 +105,30 @@ def hybrid_search(
         retrievers_used=retriever.enabled,
         counts={name: len(hits) for name, hits in per_retriever.items()},
         results=[FusedResult(**hit.__dict__) for hit in limited],
+    )
+
+
+@router.get("/search/graph", response_model=GraphSearchResponse)
+def graph_search(
+    q: str = Query(..., min_length=1),
+    top_k: int | None = Query(None, ge=1, le=50),
+    retriever: GraphRetriever | None = Depends(get_graph_retriever),
+) -> GraphSearchResponse:
+    """Knowledge-graph retrieval only: matched entities, facts and source chunks."""
+    if not q.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Query cannot be empty.")
+    if retriever is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Neo4j is not configured.")
+    try:
+        result = retriever.retrieve(q, top_k=top_k or get_settings().kg_top_k)
+    except Exception:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Graph retrieval failed.")
+    return GraphSearchResponse(
+        query=q,
+        matched_entities=[m.__dict__ for m in result.matched_entities],
+        evidence=[
+            {**{k: v for k, v in e.__dict__.items() if k != "facts"},
+             "facts": [f.__dict__ for f in e.facts]}
+            for e in result.evidence
+        ],
     )

@@ -1,4 +1,4 @@
-﻿"""Shared test setup."""
+"""Shared test setup."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from app.core.dependencies import (
     get_bm25_index,
     get_document_store,
+    get_graph_builder,
+    get_graph_indexer,
     get_hybrid_retriever,
     get_ingestion_pipeline,
     get_vector_store,
@@ -49,6 +51,9 @@ def client(tmp_path):
     app.dependency_overrides[get_bm25_index] = lambda: bm25_index
     app.dependency_overrides[get_hybrid_retriever] = lambda: hybrid
     app.dependency_overrides[get_ingestion_pipeline] = lambda: pipeline
+    # Never call the LLM or write to Neo4j from API tests
+    app.dependency_overrides[get_graph_indexer] = lambda: None
+    app.dependency_overrides[get_graph_builder] = lambda: None
 
     with TestClient(app) as test_client:
         yield test_client

@@ -30,6 +30,12 @@ class RefreshableIndex(Protocol):
     def refresh(self) -> int: ...
 
 
+class GraphStore(Protocol):
+    """Anything that can forget a document's knowledge-graph facts."""
+
+    def delete_document(self, document_id: str) -> None: ...
+
+
 class FileTooLargeError(Exception):
     """Raised when an uploaded file exceeds the size limit."""
 
@@ -44,12 +50,14 @@ class IngestionPipeline:
         bm25_index: RefreshableIndex | None,
         chunk_size: int,
         chunk_overlap: int,
+        graph_store: GraphStore | None = None,
     ) -> None:
         self.store = store
         self.vector_store = vector_store
         self.bm25_index = bm25_index
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.graph_store = graph_store
 
     def ingest(self, filename: str, content: bytes) -> DocumentRecord:
         # 1. Validate
@@ -122,6 +130,12 @@ class IngestionPipeline:
 
     def remove(self, document_id: str) -> bool:
         """Delete a document everywhere it was stored."""
+        if self.graph_store is not None:
+            try:
+                self.graph_store.delete_document(document_id)
+            except Exception:
+                # The graph is secondary; don't block deleting the document itself
+                logger.exception("Graph cleanup failed for document_id=%s", document_id)
         if self.vector_store is not None:
             self.vector_store.delete_document(document_id)
         removed = self.store.delete_document(document_id)

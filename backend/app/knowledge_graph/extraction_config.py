@@ -15,12 +15,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 DEFAULT_ENTITY_TYPES = (
-    "Person,Organization,Company,Product,Location,Technology,Concept,Date,Event"
+    "Person,Organization,Company,Scheme,Product,Location,Technology,Concept,Date,Event"
 )
 DEFAULT_RELATION_TYPES = (
     "WORKS_FOR,MANAGED_BY,FOUNDED_BY,FOUNDED_ON,PRODUCES,LOCATED_IN,HEADQUARTERED_IN,"
     "USED_BY,USES,PART_OF,OWNS,SUBSIDIARY_OF,PARTNERED_WITH,COMPETES_WITH,"
-    "OCCURRED_ON,OCCURRED_IN,PARTICIPATED_IN,RELATED_TO"
+    "OCCURRED_ON,OCCURRED_IN,PARTICIPATED_IN,ELIGIBLE_FOR,PROVIDES,FUNDED_BY,RELATED_TO"
 )
 
 
@@ -40,11 +40,21 @@ class KGExtractionSettings(BaseSettings):
     kg_relation_types: str = DEFAULT_RELATION_TYPES
     kg_allow_unknown_relation_types: bool = False
 
-    kg_min_confidence: float = 0.5
+    kg_build_on_upload: bool = True
+    kg_min_confidence: float = 0.7
+    # Both entity names must appear in the evidence quote
+    kg_require_names_in_evidence: bool = True
+    # Enforce source/target entity types per relationship (see RELATION_TYPE_RULES)
+    kg_enforce_type_rules: bool = True
     kg_max_entities_per_chunk: int = 25
     kg_max_relationships_per_chunk: int = 40
     kg_max_chunk_chars: int = 6000
     kg_evidence_min_token_overlap: float = 0.8
+
+    # Phase 10: graph retrieval
+    kg_max_seed_entities: int = 5
+    kg_min_entity_match: float = 0.6  # share of an entity's name words found in the question
+    kg_max_facts: int = 50
 
     @property
     def entity_types(self) -> list[str]:

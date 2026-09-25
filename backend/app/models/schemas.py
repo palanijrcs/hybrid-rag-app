@@ -83,3 +83,35 @@ class HybridSearchResponse(BaseModel):
     retrievers_used: list[str]
     counts: dict[str, int]
     results: list[FusedResult] = Field(default_factory=list)
+
+
+class GraphEntityMatch(BaseModel):
+    entity_id: str
+    name: str
+    type: str
+    match: float
+
+
+class GraphFactResult(BaseModel):
+    source: str
+    type: str
+    target: str
+    evidence: str
+    confidence: float
+
+
+class GraphEvidenceResult(BaseModel):
+    chunk_id: str
+    document_id: str
+    document_name: str
+    page_number: int | None = None
+    text: str
+    score: float
+    entities: list[str] = Field(default_factory=list)
+    facts: list[GraphFactResult] = Field(default_factory=list)
+
+
+class GraphSearchResponse(BaseModel):
+    query: str
+    matched_entities: list[GraphEntityMatch] = Field(default_factory=list)
+    evidence: list[GraphEvidenceResult] = Field(default_factory=list)

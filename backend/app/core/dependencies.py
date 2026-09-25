@@ -1,4 +1,9 @@
 """Shared objects handed to the API routes."""
+from app.knowledge_graph.extraction_config import get_kg_settings
+from app.knowledge_graph.extraction_pipeline import build_graph_extraction_service
+from app.knowledge_graph.graph_builder import GraphBuilder
+from app.knowledge_graph.graph_indexer import GraphIndexer
+from app.knowledge_graph.graph_retriever import GraphRetriever
 from app.knowledge_graph.neo4j_client import Neo4jClient
 from functools import lru_cache
 from app.retrieval.hybrid_retriever import HybridRetriever
@@ -44,7 +49,10 @@ def get_ingestion_pipeline() -> IngestionPipeline:
         bm25_index=get_bm25_index(),
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
+        graph_store=get_graph_builder(),
     )
+
+
 @lru_cache
 def get_hybrid_retriever() -> HybridRetriever:
     settings = get_settings()
@@ -53,7 +61,7 @@ def get_hybrid_retriever() -> HybridRetriever:
         bm25_retriever=(
             get_bm25_index().retriever if settings.enable_bm25 else None
         ),
-        graph_retriever=None,  # Neo4j arrives in a later phase
+        graph_retriever=get_graph_retriever() if settings.enable_kg_retrieval else None,
         vector_top_k=settings.vector_top_k,
         bm25_top_k=settings.bm25_top_k,
         kg_top_k=settings.kg_top_k,
@@ -67,4 +75,42 @@ def get_neo4j_client() -> Neo4jClient:
         username=settings.neo4j_username,
         password=settings.neo4j_password.get_secret_value(),
         database=settings.neo4j_database,
+    )
+
+
+@lru_cache
+def get_graph_builder() -> GraphBuilder | None:
+    """Writes to Neo4j; None when Neo4j is not configured."""
+    client = get_neo4j_client()
+    return GraphBuilder(client) if client.is_configured else None
+
+
+@lru_cache
+def get_graph_indexer() -> GraphIndexer | None:
+    """Builds a document's graph after upload; None when the feature is off."""
+    settings = get_settings()
+    kg_settings = get_kg_settings()
+    builder = get_graph_builder()
+    has_key = bool(
+        kg_settings.openai_api_key and kg_settings.openai_api_key.get_secret_value()
+    )
+    if builder is None or not has_key:
+        return None
+    if not (settings.enable_kg_retrieval and kg_settings.kg_build_on_upload):
+        return None
+    return GraphIndexer(lambda: build_graph_extraction_service(kg_settings), builder)
+
+
+@lru_cache
+def get_graph_retriever() -> GraphRetriever | None:
+    """Finds evidence through the knowledge graph; None when Neo4j is not configured."""
+    client = get_neo4j_client()
+    if not client.is_configured:
+        return None
+    kg_settings = get_kg_settings()
+    return GraphRetriever(
+        client,
+        max_seed_entities=kg_settings.kg_max_seed_entities,
+        min_entity_match=kg_settings.kg_min_entity_match,
+        max_facts=kg_settings.kg_max_facts,
     )

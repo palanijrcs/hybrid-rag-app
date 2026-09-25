@@ -110,7 +110,7 @@ def test_ungrounded_evidence_low_confidence_and_unknown_type_rejected():
 def test_unknown_types_allowed_when_configured():
     data = {"entities": GOOD["entities"][1:4:2], "relationships": [
         {"source": "ABC Corporation", "target": "Chennai", "type": "based in",
-         "evidence": "headquartered in Chennai", "confidence": 0.8}]}
+         "evidence": "ABC Corporation is headquartered in Chennai", "confidence": 0.8}]}
     res = asyncio.run(service(FakeClient(data), kg_allow_unknown_relation_types=True)
                       .extract_chunk(chunk()))
     assert [r.type for r in res.relationships] == ["BASED_IN"]
@@ -168,3 +168,79 @@ def test_helpers():
     assert normalize_relation_type("works for") == "WORKS_FOR"
     assert evidence_is_grounded("ABC  Corporation PRODUCES product a", TEXT, 0.8)
     assert not evidence_is_grounded("", TEXT, 0.8)
+
+
+# ---------------------------------------------------------------- relationship quality (Phase 9 fix)
+SCHEME_TEXT = (
+    "Pradhan Mantri Kisan Maan-Dhan Yojana is a pension scheme. "
+    "Pension will be paid to the farmers from a Pension Fund managed by the "
+    "Life Insurance Corporation of India. "
+    "Spouses of the Small and Marginal farmers are also eligible to join the scheme separately. "
+    "Small and Marginal farmers are eligible for Pradhan Mantri Kisan Maan-Dhan Yojana."
+)
+SCHEME_ENTITIES = [
+    {"name": "Pradhan Mantri Kisan Maan-Dhan Yojana", "type": "Scheme"},
+    {"name": "Life Insurance Corporation of India", "type": "Organization"},
+    {"name": "Pension Fund", "type": "Concept"},
+    {"name": "farmers", "type": "Concept"},
+    {"name": "Small and Marginal farmers", "type": "Concept"},
+]
+LIC_QUOTE = ("Pension will be paid to the farmers from a Pension Fund managed by the "
+             "Life Insurance Corporation of India.")
+
+
+def _scheme_result(relationships):
+    client = FakeClient({"entities": SCHEME_ENTITIES, "relationships": relationships})
+    return asyncio.run(service(client).extract_chunk(chunk(text=SCHEME_TEXT)))
+
+
+def test_chained_fact_rejected_when_entity_not_in_quote():
+    # Screenshot row 1: the quote says the FUND is managed by LIC, not the scheme
+    res = _scheme_result([{"source": "Pradhan Mantri Kisan Maan-Dhan Yojana",
+                           "target": "Life Insurance Corporation of India",
+                           "type": "MANAGED_BY", "evidence": LIC_QUOTE, "confidence": 0.9}])
+    assert res.relationships == []
+    assert res.rejected[0].reason == "entities_not_named_in_evidence"
+
+
+def test_wrong_entity_types_rejected():
+    rels = [  # screenshot rows 2 and 4
+        {"source": "farmers", "target": "Life Insurance Corporation of India",
+         "type": "USED_BY", "evidence": LIC_QUOTE, "confidence": 0.9},
+        {"source": "Small and Marginal farmers", "target": "farmers",
+         "type": "PARTICIPATED_IN",
+         "evidence": "Spouses of the Small and Marginal farmers are also eligible",
+         "confidence": 0.9},
+    ]
+    res = _scheme_result(rels)
+    assert res.relationships == []
+    reasons = [r.reason for r in res.rejected]
+    assert "source_type_not_allowed:USED_BY:Concept" in reasons
+    assert "target_type_not_allowed:PARTICIPATED_IN:Concept" in reasons
+
+
+def test_correct_relationships_still_accepted():
+    res = _scheme_result([
+        {"source": "Pension Fund", "target": "Life Insurance Corporation of India",
+         "type": "MANAGED_BY", "evidence": LIC_QUOTE, "confidence": 0.95},
+        {"source": "Small and Marginal farmers",
+         "target": "Pradhan Mantri Kisan Maan-Dhan Yojana", "type": "ELIGIBLE_FOR",
+         "evidence": "Small and Marginal farmers are eligible for Pradhan Mantri "
+                     "Kisan Maan-Dhan Yojana.", "confidence": 0.95},
+    ])
+    assert {r.type for r in res.relationships} == {"MANAGED_BY", "ELIGIBLE_FOR"}
+
+
+def test_below_default_confidence_floor_rejected():
+    res = _scheme_result([{"source": "Pension Fund",
+                           "target": "Life Insurance Corporation of India",
+                           "type": "MANAGED_BY", "evidence": LIC_QUOTE, "confidence": 0.6}])
+    assert res.relationships == [] and res.rejected[0].reason.startswith("low_confidence")
+
+
+def test_prompt_lists_type_rules():
+    client = FakeClient({"entities": [], "relationships": []})
+    asyncio.run(service(client).extract_chunk(chunk()))
+    system = client.calls[0][0]
+    assert "WORKS_FOR: [Person] -> [Company, Organization]" in system
+    assert "contains BOTH entity names" in system
