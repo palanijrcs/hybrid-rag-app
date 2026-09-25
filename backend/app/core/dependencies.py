@@ -1,5 +1,5 @@
 """Shared objects handed to the API routes."""
-
+from app.knowledge_graph.neo4j_client import Neo4jClient
 from functools import lru_cache
 from app.retrieval.hybrid_retriever import HybridRetriever
 
@@ -58,4 +58,13 @@ def get_hybrid_retriever() -> HybridRetriever:
         bm25_top_k=settings.bm25_top_k,
         kg_top_k=settings.kg_top_k,
         fusion_method=settings.fusion_method,
+    )
+@lru_cache
+def get_neo4j_client() -> Neo4jClient:
+    settings = get_settings()
+    return Neo4jClient(
+        uri=settings.neo4j_uri,
+        username=settings.neo4j_username,
+        password=settings.neo4j_password.get_secret_value(),
+        database=settings.neo4j_database,
     )
