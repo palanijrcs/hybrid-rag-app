@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Protocol
 
 from app.ingestion.chunking import chunk_pages
+from app.ingestion.quality import split_by_quality
 from app.ingestion.loaders import (
     SUPPORTED_EXTENSIONS,
+    DocumentLoadError,
     UnsupportedFileTypeError,
     load_document,
 )
@@ -51,6 +53,7 @@ class IngestionPipeline:
         chunk_size: int,
         chunk_overlap: int,
         graph_store: GraphStore | None = None,
+        skip_garbled_chunks: bool = True,
     ) -> None:
         self.store = store
         self.vector_store = vector_store
@@ -58,6 +61,7 @@ class IngestionPipeline:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.graph_store = graph_store
+        self.skip_garbled_chunks = skip_garbled_chunks
 
     def ingest(self, filename: str, content: bytes) -> DocumentRecord:
         # 1. Validate
@@ -96,6 +100,20 @@ class IngestionPipeline:
                 chunk_size=self.chunk_size,
                 chunk_overlap=self.chunk_overlap,
             )
+            if self.skip_garbled_chunks:
+                chunks, rejected = split_by_quality(chunks)
+                if rejected:
+                    pages = sorted({c.page_number for c, _ in rejected if c.page_number})
+                    logger.warning(
+                        "Skipped %d chunk(s) of %s with unreadable text (pages %s): %s",
+                        len(rejected), filename, pages, rejected[0][1].reason,
+                    )
+                if rejected and not chunks:
+                    raise DocumentLoadError(
+                        f"The text in {filename} could not be extracted correctly "
+                        "(the PDF's fonts don't map to readable characters). "
+                        "It needs OCR before it can be used."
+                    )
         except Exception:
             stored_path.unlink(missing_ok=True)  # don't leave orphan files
             raise

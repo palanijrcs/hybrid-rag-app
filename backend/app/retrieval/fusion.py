@@ -24,6 +24,7 @@ class FusedHit:
     retrievers: list[str] = field(default_factory=list)
     original_scores: dict[str, float] = field(default_factory=dict)
     ranks: dict[str, int] = field(default_factory=dict)
+    rerank_score: float | None = None  # set by the re-ranker (0..1)
 
     @property
     def found_by_multiple(self) -> bool:

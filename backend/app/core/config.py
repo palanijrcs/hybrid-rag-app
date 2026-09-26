@@ -58,13 +58,17 @@ class Settings(BaseSettings):
     bm25_top_k: int = 10
     kg_top_k: int = 10
     rerank_top_k: int = 5
+    rerank_candidates: int = 30  # how many fused results the re-ranker scores
 
     enable_vector_retrieval: bool = True
     enable_bm25: bool = True
     enable_kg_retrieval: bool = True
     enable_reranker: bool = True
     fusion_method: str = "rrf"
-    min_relevance_score: float = 0.0
+    min_relevance_score: float = 0.0  # re-ranker threshold, 0..1
+
+    # Ingestion quality: don't index text that was extracted incorrectly
+    skip_garbled_chunks: bool = True
 
 
     # API

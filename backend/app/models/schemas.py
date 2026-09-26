@@ -75,6 +75,7 @@ class FusedResult(BaseModel):
     retrievers: list[str]
     original_scores: dict[str, float]
     ranks: dict[str, int]
+    rerank_score: float | None = None
 
 
 class HybridSearchResponse(BaseModel):

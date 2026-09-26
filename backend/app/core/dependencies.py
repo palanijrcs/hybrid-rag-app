@@ -7,6 +7,7 @@ from app.knowledge_graph.graph_retriever import GraphRetriever
 from app.knowledge_graph.neo4j_client import Neo4jClient
 from functools import lru_cache
 from app.retrieval.hybrid_retriever import HybridRetriever
+from app.retrieval.reranker import CrossEncoderReranker
 
 from app.core.config import get_settings
 from app.core.indexes import BM25Index
@@ -50,6 +51,7 @@ def get_ingestion_pipeline() -> IngestionPipeline:
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
         graph_store=get_graph_builder(),
+        skip_garbled_chunks=settings.skip_garbled_chunks,
     )
 
 
@@ -66,6 +68,17 @@ def get_hybrid_retriever() -> HybridRetriever:
         bm25_top_k=settings.bm25_top_k,
         kg_top_k=settings.kg_top_k,
         fusion_method=settings.fusion_method,
+        reranker=get_reranker() if settings.enable_reranker else None,
+        rerank_candidates=settings.rerank_candidates,
+        rerank_top_k=settings.rerank_top_k,
+    )
+
+
+@lru_cache
+def get_reranker() -> CrossEncoderReranker:
+    settings = get_settings()
+    return CrossEncoderReranker(
+        model_name=settings.reranker_model, min_score=settings.min_relevance_score
     )
 @lru_cache
 def get_neo4j_client() -> Neo4jClient:

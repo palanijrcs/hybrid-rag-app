@@ -97,13 +97,20 @@ def hybrid_search(
     from app.retrieval.fusion import fuse
 
     fused = fuse(per_retriever, method=retriever.fusion_method)
-    limited = fused[:top_k] if top_k else fused
+    if retriever.reranker is not None:
+        limited = retriever.rerank(q, fused, top_k)
+    else:
+        limited = fused[:top_k] if top_k else fused
 
     return HybridSearchResponse(
         query=q,
         fusion_method=retriever.fusion_method,
         retrievers_used=retriever.enabled,
-        counts={name: len(hits) for name, hits in per_retriever.items()},
+        counts={
+            **{name: len(hits) for name, hits in per_retriever.items()},
+            "fused": len(fused),
+            "returned": len(limited),
+        },
         results=[FusedResult(**hit.__dict__) for hit in limited],
     )
 
