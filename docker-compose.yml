@@ -27,6 +27,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000   # container-to-container name
       PUBLIC_MODE: ${PUBLIC_MODE:-false}  # VPS: true = visitors can only ask questions
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}  # unlocks Upload/Delete for the owner in public mode
     ports:
       - "${FRONTEND_BIND:-8501}:8501"    # VPS: 127.0.0.1:8601 (nginx in front)
     depends_on:

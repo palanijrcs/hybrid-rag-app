@@ -168,3 +168,32 @@ def test_public_mode_hides_upload_delete_and_settings(fake_backend, monkeypatch)
     at.chat_input[0].set_value("How much pension will farmers get?").run()
     assert ("POST", "http://localhost:8000/query",
             {"question": "How much pension will farmers get?"}) in fake_backend
+
+
+def test_admin_password_unlocks_upload_in_public_mode(fake_backend, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("PUBLIC_MODE", "true")
+    monkeypatch.setenv("ADMIN_PASSWORD", "s3cret-pass")
+    at = AppTest.from_file(str(FRONTEND / "app.py"), default_timeout=30).run()
+    assert not any(b.label == "Delete" for b in at.button)
+
+    at.text_input(key="admin_password").set_value("wrong").run()
+    next(b for b in at.button if b.label == "Unlock").click().run()
+    assert any("Wrong password" in e.value for e in at.error)
+    assert not any(b.label == "Delete" for b in at.button)
+
+    at.text_input(key="admin_password").set_value("s3cret-pass").run()
+    next(b for b in at.button if b.label == "Unlock").click().run()
+    assert not at.exception
+    assert any(b.label == "Delete" for b in at.button)
+    assert any("Upload" in s.value for s in at.sidebar.subheader)
+
+
+def test_no_admin_box_without_password(fake_backend, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("PUBLIC_MODE", "true")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    at = AppTest.from_file(str(FRONTEND / "app.py"), default_timeout=30).run()
+    assert not any(e.label == "Admin" for e in at.sidebar.expander)

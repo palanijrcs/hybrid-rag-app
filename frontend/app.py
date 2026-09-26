@@ -1,5 +1,6 @@
 """Streamlit frontend for the Hybrid RAG application."""
 
+import hmac
 import os
 
 import streamlit as st
@@ -10,6 +11,9 @@ from services.api_client import ApiError, BackendClient
 DEFAULT_BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 # Public website: visitors can only ask questions (no upload, delete or backend settings)
 PUBLIC_MODE = os.getenv("PUBLIC_MODE", "false").strip().lower() in ("1", "true", "yes")
+# In public mode, the owner unlocks Upload/Delete with this password (empty = no admin login)
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+MAX_ADMIN_ATTEMPTS = 5
 SUPPORTED_TYPES = ["pdf", "docx", "txt", "md"]
 GRAPH_STATUS_ICON = {"done": "🕸️ graph ready", "partial": "🕸️ graph partial",
                      "processing": "⏳ building graph", "failed": "⚠️ graph failed",
@@ -81,10 +85,41 @@ def render_documents(api: BackendClient, can_delete: bool) -> list[dict]:
     return documents
 
 
+def render_admin_login() -> bool:
+    """Small password box for the site owner. Returns True once unlocked."""
+    if st.session_state.get("is_admin"):
+        if st.button("Log out of admin"):
+            st.session_state.is_admin = False
+            st.rerun()
+        return True
+    if not ADMIN_PASSWORD:
+        return False
+    attempts = st.session_state.get("admin_attempts", 0)
+    with st.expander("Admin", expanded=False):
+        if attempts >= MAX_ADMIN_ATTEMPTS:
+            st.caption("Too many attempts. Reload the page to try again later.")
+            return False
+        password = st.text_input("Admin password", type="password", key="admin_password")
+        if st.button("Unlock"):
+            if hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()):
+                st.session_state.is_admin = True
+                st.session_state.admin_attempts = 0
+                st.rerun()
+            else:
+                st.session_state.admin_attempts = attempts + 1
+                st.error("Wrong password.")
+    return False
+
+
 with st.sidebar:
     if PUBLIC_MODE:
         api = BackendClient(DEFAULT_BACKEND_URL)
+        is_admin = render_admin_login()
+        if is_admin:
+            render_upload(api)
+            st.divider()
     else:
+        is_admin = True
         st.header("Settings")
         api = BackendClient(st.text_input("Backend URL", value=DEFAULT_BACKEND_URL).rstrip("/"))
         render_backend_status(api)
@@ -92,7 +127,7 @@ with st.sidebar:
         render_upload(api)
         st.divider()
 
-    documents = render_documents(api, can_delete=not PUBLIC_MODE)
+    documents = render_documents(api, can_delete=not PUBLIC_MODE or is_admin)
 
     if st.session_state.messages and st.button("Clear conversation"):
         st.session_state.messages = []
