@@ -59,3 +59,17 @@ def client(tmp_path):
         yield test_client
 
     app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------- Phase 19: markers
+SLOW_TEST_FILES = {
+    "test_embeddings.py", "test_faiss_store.py", "test_api_documents.py",
+    "test_api_search.py", "test_hybrid_retriever.py", "test_reranker.py",
+}
+
+
+def pytest_collection_modifyitems(config, items):
+    """Tag model-loading tests as slow so the quick loop can skip them."""
+    for item in items:
+        if item.path.name in SLOW_TEST_FILES:
+            item.add_marker(pytest.mark.slow)

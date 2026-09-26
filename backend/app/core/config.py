@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     # Ingestion quality: don't index text that was extracted incorrectly
     skip_garbled_chunks: bool = True
 
+    # Evaluation (Phase 18)
+    evaluation_model: str = "gpt-4o-mini"
+    evaluation_threshold: float = 0.7
+    evaluation_dataset: str = "evaluation/datasets/golden.jsonl"
+    evaluation_results_dir: str = "evaluation/results"
+
 
     # API
     api_host: str = "0.0.0.0"
