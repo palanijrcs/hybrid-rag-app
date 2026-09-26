@@ -6,6 +6,7 @@ from app.knowledge_graph.graph_indexer import GraphIndexer
 from app.knowledge_graph.graph_retriever import GraphRetriever
 from app.knowledge_graph.neo4j_client import Neo4jClient
 from functools import lru_cache
+from app.retrieval.context_builder import ContextBuilder
 from app.retrieval.hybrid_retriever import HybridRetriever
 from app.retrieval.reranker import CrossEncoderReranker
 
@@ -71,6 +72,14 @@ def get_hybrid_retriever() -> HybridRetriever:
         reranker=get_reranker() if settings.enable_reranker else None,
         rerank_candidates=settings.rerank_candidates,
         rerank_top_k=settings.rerank_top_k,
+    )
+
+
+@lru_cache
+def get_context_builder() -> ContextBuilder:
+    settings = get_settings()
+    return ContextBuilder(
+        max_chars=settings.context_max_chars, max_sources=settings.context_max_sources
     )
 
 

@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     fusion_method: str = "rrf"
     min_relevance_score: float = 0.0  # re-ranker threshold, 0..1
 
+    # Context builder (evidence given to the LLM)
+    context_max_chars: int = 6000
+    context_max_sources: int = 8
+
     # Ingestion quality: don't index text that was extracted incorrectly
     skip_garbled_chunks: bool = True
 

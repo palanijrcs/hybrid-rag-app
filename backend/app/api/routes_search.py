@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import get_settings
 from app.core.dependencies import (
     get_bm25_index,
+    get_context_builder,
     get_graph_retriever,
     get_document_store,
     get_vector_store,
@@ -15,8 +16,10 @@ from app.core.dependencies import (
 from app.core.indexes import BM25Index
 from app.ingestion.store import DocumentStore
 from app.knowledge_graph.graph_retriever import GraphRetriever
+from app.retrieval.context_builder import ContextBuilder
 from app.models.schemas import (
     ComparisonResponse,
+    ContextResponse,
     GraphSearchResponse,
     IndexStats,
     RetrievedChunk,
@@ -138,4 +141,34 @@ def graph_search(
              "facts": [f.__dict__ for f in e.facts]}
             for e in result.evidence
         ],
+    )
+
+
+@router.get("/search/context", response_model=ContextResponse)
+def build_context(
+    q: str = Query(..., min_length=1),
+    retriever: HybridRetriever = Depends(get_hybrid_retriever),
+    graph: GraphRetriever | None = Depends(get_graph_retriever),
+    builder: ContextBuilder = Depends(get_context_builder),
+) -> ContextResponse:
+    """Preview the exact evidence block the LLM will receive for a question."""
+    if not q.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Query cannot be empty.")
+    hits = retriever.retrieve(q)  # fused + re-ranked + thresholded
+    graph_evidence = []
+    if graph is not None and get_settings().enable_kg_retrieval and hits:
+        try:
+            graph_evidence = graph.retrieve(q, top_k=get_settings().kg_top_k).evidence
+        except Exception:
+            graph_evidence = []  # graph facts are optional extras
+    ctx = builder.build(q, hits, graph_evidence)
+    return ContextResponse(
+        query=q,
+        is_empty=ctx.is_empty,
+        char_count=ctx.char_count,
+        dropped_chunks=ctx.dropped_chunks,
+        removed_duplicate_sentences=ctx.removed_duplicate_sentences,
+        sources=[{**s.__dict__, "label": s.label} for s in ctx.sources],
+        facts=[f.__dict__ for f in ctx.facts],
+        context=ctx.text,
     )

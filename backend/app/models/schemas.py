@@ -86,6 +86,35 @@ class HybridSearchResponse(BaseModel):
     results: list[FusedResult] = Field(default_factory=list)
 
 
+class ContextSourceResult(BaseModel):
+    ref: int
+    label: str
+    chunk_id: str
+    document_id: str
+    document_name: str
+    page_number: int | None = None
+    retrievers: list[str]
+    rerank_score: float | None = None
+    text: str
+
+
+class ContextFactResult(BaseModel):
+    source_ref: int
+    text: str
+    evidence: str
+
+
+class ContextResponse(BaseModel):
+    query: str
+    is_empty: bool
+    char_count: int
+    dropped_chunks: int
+    removed_duplicate_sentences: int
+    sources: list[ContextSourceResult] = Field(default_factory=list)
+    facts: list[ContextFactResult] = Field(default_factory=list)
+    context: str
+
+
 class GraphEntityMatch(BaseModel):
     entity_id: str
     name: str
