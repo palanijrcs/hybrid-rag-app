@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.coverage
 venv/
 .venv/
+.env
+docker-compose*.yml

@@ -1,6 +1,7 @@
 """Entry point for the Hybrid RAG backend API."""
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -16,19 +17,7 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-app = FastAPI(
-    title="Hybrid RAG API",
-    description="Grounded question answering over uploaded documents.",
-    version="0.3.0",
-)
 
-app.include_router(routes_documents.router)
-app.include_router(routes_search.router)
-app.include_router(routes_query.router)
-app.include_router(routes_evaluation.router)
-
-
-@app.on_event("startup")
 def prepare_graph() -> None:
     """Create the graph schema at startup, if Neo4j is available."""
     client = get_neo4j_client()
@@ -42,6 +31,25 @@ def prepare_graph() -> None:
             logger.exception("Could not prepare the Neo4j schema.")
     else:
         logger.warning("Starting without a graph connection.")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    prepare_graph()
+    yield
+
+
+app = FastAPI(
+    lifespan=lifespan,
+    title="Hybrid RAG API",
+    description="Grounded question answering over uploaded documents.",
+    version="0.3.0",
+)
+
+app.include_router(routes_documents.router)
+app.include_router(routes_search.router)
+app.include_router(routes_query.router)
+app.include_router(routes_evaluation.router)
 
 
 @app.get("/health", tags=["health"])

@@ -1,0 +1,13 @@
+# Development overrides: live code reload + test tools inside the container.
+services:
+  backend:
+    build:
+      args:
+        INSTALL_DEV: "true"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+  frontend:
+    volumes:
+      - ./frontend:/app

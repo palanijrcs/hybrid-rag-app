@@ -56,7 +56,7 @@ async def upload_document(
     except FileTooLargeError as error:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(error))
     except DocumentLoadError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error))
+        raise HTTPException(422, str(error))
     except Exception as error:  # unexpected
         logger.exception("Ingestion failed for %s", file.filename)
         raise HTTPException(
