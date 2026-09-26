@@ -185,3 +185,4 @@ class QueryResponse(BaseModel):
     question_subject: str | None = None
     sources_subject: str | None = None
     input_guardrail: GuardrailInfo | None = None
+    output_guardrail: dict = Field(default_factory=dict)

@@ -67,4 +67,5 @@ def query(
         question_subject=result.question_subject,
         sources_subject=result.sources_subject,
         input_guardrail=info,
+        output_guardrail=result.output_guardrail,
     )

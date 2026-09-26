@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     max_query_chars: int = 1000
     block_out_of_scope_requests: bool = True
 
+    # Output guardrail
+    enable_output_guardrail: bool = True
+    enable_llm_verification: bool = True  # one extra LLM call per answer
+    max_regenerations: int = 1
+
     # Ingestion quality: don't index text that was extracted incorrectly
     skip_garbled_chunks: bool = True
 

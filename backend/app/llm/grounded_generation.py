@@ -51,6 +51,11 @@ class QAResult:
     coverage: str | None = None          # full | partial | mentioned_only | none
     question_subject: str | None = None
     sources_subject: str | None = None
+    output_guardrail: dict[str, Any] = field(default_factory=dict)
+
+
+def _citations(text: str) -> list[int]:
+    return [int(n) for n in _CITATION.findall(text)]
 
 
 def parse_llm_json(raw: str) -> dict[str, Any]:
@@ -91,6 +96,8 @@ class GroundedQA:
         graph_retriever: Any | None = None,
         kg_top_k: int = 10,
         max_attempts: int = 2,
+        output_guardrail: Any | None = None,
+        max_regenerations: int = 1,
     ) -> None:
         self.retriever = retriever
         self.context_builder = context_builder
@@ -98,6 +105,8 @@ class GroundedQA:
         self.graph_retriever = graph_retriever
         self.kg_top_k = kg_top_k
         self.max_attempts = max_attempts
+        self.output_guardrail = output_guardrail
+        self.max_regenerations = max_regenerations if output_guardrail is not None else 0
 
     # ---------------------------------------------------------------- pipeline
     def answer(self, question: str) -> QAResult:
@@ -127,44 +136,87 @@ class GroundedQA:
             raise LLMError("No language model is configured (check OPENAI_API_KEY).")
 
         t1 = time.perf_counter()
-        data = self._generate(question, context)
+        feedback: str | None = None
+        guard_info: dict[str, Any] = {"enabled": self.output_guardrail is not None,
+                                      "regenerated": False}
+        notes: list[str] = []
+        by_ref = {s.ref: s for s in context.sources}
+        valid_refs = set(by_ref)
+
+        for round_no in range(self.max_regenerations + 1):
+            data = self._generate(question, context, feedback)
+            coverage = str(data.get("coverage", "full")).strip().lower()
+            if coverage not in COVERAGE_VALUES:
+                coverage = "full"
+            q_subject = str(data.get("question_subject") or "").strip() or None
+            s_subject = str(data.get("sources_subject") or "").strip() or None
+            subject_info = {"coverage": coverage, "question_subject": q_subject,
+                            "sources_subject": s_subject}
+
+            if coverage == "none":
+                timings["generation"] = _ms(t1)
+                return self._insufficient(question, context, retrieval, timings,
+                                          "The sources do not cover the question's subject.",
+                                          model=self.llm.model, subject=subject_info,
+                                          guard=guard_info)
+
+            answer, used, invalid = check_citations(data["answer"], valid_refs)
+            notes = [f"Removed citations to non-existent sources: {sorted(set(invalid))}"] \
+                if invalid else []
+            if bool(data.get("insufficient_evidence")) or not answer:
+                timings["generation"] = _ms(t1)
+                return self._insufficient(question, context, retrieval, timings,
+                                          "The model found the evidence insufficient.",
+                                          model=self.llm.model, extra=notes,
+                                          subject=subject_info, guard=guard_info)
+            if not used:
+                logger.warning("qa.uncited_answer_rejected")
+                timings["generation"] = _ms(t1)
+                return self._insufficient(question, context, retrieval, timings,
+                                          "The model's answer cited no source, so it was not "
+                                          "returned.", model=self.llm.model, extra=notes,
+                                          subject=subject_info, guard=guard_info)
+            if coverage == "mentioned_only":
+                answer = f"{mentioned_only_notice(q_subject, s_subject)}\n\n{answer}"
+
+            if self.output_guardrail is None:
+                break
+            check = self.output_guardrail.check(question, answer, context.sources)
+            guard_info.update({
+                "passed": check.passed,
+                "verifier_used": check.verifier_used,
+                "verifier_error": check.verifier_error,
+                "issues": [f"{s.text} -> {'; '.join(s.issues)}"
+                           for s in check.sentences if s.issues],
+            })
+            if check.passed or round_no == self.max_regenerations:
+                break
+            # one more attempt, telling the model exactly what was wrong
+            logger.info("qa.regenerating unsupported=%d", len(check.unsupported))
+            guard_info["regenerated"] = True
+            feedback = check.feedback()
+
         timings["generation"] = _ms(t1)
 
-        coverage = str(data.get("coverage", "full")).strip().lower()
-        if coverage not in COVERAGE_VALUES:
-            coverage = "full"
-        q_subject = str(data.get("question_subject") or "").strip() or None
-        s_subject = str(data.get("sources_subject") or "").strip() or None
-        subject_info = {"coverage": coverage, "question_subject": q_subject,
-                        "sources_subject": s_subject}
-
-        if coverage == "none":
-            return self._insufficient(question, context, retrieval, timings,
-                                      "The sources do not cover the question's subject.",
-                                      model=self.llm.model, subject=subject_info)
-
-        valid_refs = {s.ref for s in context.sources}
-        answer, used, invalid = check_citations(data["answer"], valid_refs)
-        notes = []
-        if invalid:
-            notes.append(f"Removed citations to non-existent sources: {sorted(set(invalid))}")
-
-        if bool(data.get("insufficient_evidence")) or not answer:
-            return self._insufficient(question, context, retrieval, timings,
-                                      "The model found the evidence insufficient.",
-                                      model=self.llm.model, extra=notes, subject=subject_info)
-        if not used:
-            logger.warning("qa.uncited_answer_rejected")
-            return self._insufficient(question, context, retrieval, timings,
-                                      "The model's answer cited no source, so it was not returned.",
-                                      model=self.llm.model, extra=notes, subject=subject_info)
-
+        if self.output_guardrail is not None:
+            removed = len(check.unsupported)
+            guard_info.update({"removed_sentences": removed,
+                               "corrected_citations": len(check.corrected)})
+            if removed:
+                notes.append(f"Removed {removed} sentence(s) not supported by the sources.")
+            if check.corrected:
+                notes.append(f"Corrected citations in {len(check.corrected)} sentence(s).")
+            if not check.has_supported_facts:
+                return self._insufficient(question, context, retrieval, timings,
+                                          "No part of the answer could be verified against "
+                                          "the sources.", model=self.llm.model, extra=notes,
+                                          subject=subject_info, guard=guard_info)
+            answer = check.cleaned_answer
+            used = sorted({r for c in check.sentences if c.status in ("supported", "corrected")
+                           for r in _citations(c.fixed_text or c.text)} & valid_refs)
         if coverage == "mentioned_only":
-            # Always tell the user plainly that the documents are about something else
-            answer = f"{mentioned_only_notice(q_subject, s_subject)}\n\n{answer}"
             notes.append("The question's subject is only mentioned in passing in the documents.")
 
-        by_ref = {s.ref: s for s in context.sources}
         timings["total"] = _ms(t0)
         logger.info("qa.answered sources=%s timings=%s", used, timings)
         return QAResult(
@@ -178,12 +230,20 @@ class GroundedQA:
             model=self.llm.model,
             timings_ms=timings,
             notes=notes,
+            output_guardrail=guard_info,
             **subject_info,
         )
 
     # ---------------------------------------------------------------- helpers
-    def _generate(self, question: str, context: BuiltContext) -> dict[str, Any]:
+    def _generate(self, question: str, context: BuiltContext,
+                  feedback: str | None = None) -> dict[str, Any]:
         system, user = build_messages(question, context.text)
+        if feedback:
+            user += (
+                "\n\nYour previous answer contained statements that the sources do not "
+                "support:\n" + feedback + "\nWrite the answer again. Include only facts "
+                "stated in the sources, with correct [n] citations."
+            )
         last_error: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
             raw = self.llm.complete_json(system, user)  # LLMError propagates
@@ -205,7 +265,7 @@ class GroundedQA:
 
     @staticmethod
     def _insufficient(question, context, retrieval, timings, reason, model=None, extra=None,
-                      subject=None):
+                      subject=None, guard=None):
         return QAResult(
             question=question,
             answer=INSUFFICIENT_EVIDENCE_ANSWER,
@@ -217,6 +277,7 @@ class GroundedQA:
             model=model,
             timings_ms=timings,
             notes=[reason, *(extra or [])],
+            output_guardrail=guard or {},
             **(subject or {}),
         )
 

@@ -7,6 +7,7 @@ from app.knowledge_graph.graph_retriever import GraphRetriever
 from app.knowledge_graph.neo4j_client import Neo4jClient
 from functools import lru_cache
 from app.guardrails.input_guardrail import InputGuardrail
+from app.guardrails.output_guardrail import OutputGuardrail
 from app.llm.client import OpenAIChatClient
 from app.llm.grounded_generation import GroundedQA
 from app.retrieval.context_builder import ContextBuilder
@@ -157,7 +158,17 @@ def get_grounded_qa() -> GroundedQA:
         llm=get_chat_client(),
         graph_retriever=get_graph_retriever() if settings.enable_kg_retrieval else None,
         kg_top_k=settings.kg_top_k,
+        output_guardrail=get_output_guardrail(),
+        max_regenerations=settings.max_regenerations,
     )
+
+
+def get_output_guardrail() -> OutputGuardrail | None:
+    settings = get_settings()
+    if not settings.enable_output_guardrail:
+        return None
+    verifier = get_chat_client() if settings.enable_llm_verification else None
+    return OutputGuardrail(verifier=verifier)
 
 
 @lru_cache
