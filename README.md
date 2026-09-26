@@ -4,7 +4,7 @@ Grounded question answering over your own documents. Every answer cites the
 page it came from, and the app refuses rather than guesses when the documents
 don't contain the answer.
 
-![CI](https://github.com/OWNER/hybrid-rag-app/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/palanijrcs/hybrid-rag-app/actions/workflows/ci.yml/badge.svg)
 
 ## How it works
 
