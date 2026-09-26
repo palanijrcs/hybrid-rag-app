@@ -163,6 +163,14 @@ class SourceCitation(BaseModel):
     text: str
 
 
+class GuardrailInfo(BaseModel):
+    allowed: bool
+    category: str
+    reason: str = ""
+    sanitized_query: str
+    transformations: list[str] = Field(default_factory=list)
+
+
 class QueryResponse(BaseModel):
     question: str
     answer: str
@@ -176,3 +184,4 @@ class QueryResponse(BaseModel):
     coverage: str | None = None
     question_subject: str | None = None
     sources_subject: str | None = None
+    input_guardrail: GuardrailInfo | None = None

@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     context_max_chars: int = 6000
     context_max_sources: int = 8
 
+    # Input guardrail
+    max_query_chars: int = 1000
+    block_out_of_scope_requests: bool = True
+
     # Ingestion quality: don't index text that was extracted incorrectly
     skip_garbled_chunks: bool = True
 
