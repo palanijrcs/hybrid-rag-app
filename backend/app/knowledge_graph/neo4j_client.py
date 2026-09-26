@@ -29,7 +29,15 @@ class Neo4jClient:
             return
 
         try:
-            self._driver = GraphDatabase.driver(uri, auth=(username, password))
+            self._driver = GraphDatabase.driver(
+                uri,
+                auth=(username, password),
+                # AuraDB closes idle connections; test a pooled connection that has been
+                # idle for 30s before reusing it, and replace connections every 30 min.
+                liveness_check_timeout=30,
+                max_connection_lifetime=1800,
+                keep_alive=True,
+            )
         except Exception as error:
             # Never include the password in a log or an error message
             logger.error("Could not create the Neo4j driver: %s", type(error).__name__)

@@ -21,13 +21,20 @@ then adds the new ones, all in one transaction.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
+
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 
 from .models import DocumentGraph
 from .neo4j_client import Neo4jClient
 
 logger = logging.getLogger(__name__)
+
+RETRYABLE = (ServiceUnavailable, SessionExpired, TransientError, ConnectionError, OSError)
+RETRY_DELAYS = (2, 5, 10)   # seconds between attempts
+BATCH_SIZE = 200            # chunks per transaction for large documents
 
 SCHEMA_STATEMENTS = [
     "CREATE CONSTRAINT entity_id IF NOT EXISTS "
@@ -201,8 +208,26 @@ def _now() -> str:
 class GraphBuilder:
     """Writes and removes one document's knowledge graph."""
 
-    def __init__(self, client: Neo4jClient) -> None:
+    def __init__(self, client: Neo4jClient, batch_size: int = BATCH_SIZE,
+                 retry_delays: tuple[float, ...] = RETRY_DELAYS) -> None:
         self.client = client
+        self.batch_size = batch_size
+        self.retry_delays = retry_delays
+
+    def _write(self, work: Callable[[Any], None], label: str) -> None:
+        """Run one write transaction, retrying if AuraDB dropped the connection."""
+        for attempt in range(len(self.retry_delays) + 1):
+            try:
+                with self.client.session() as session:
+                    session.execute_write(work)
+                return
+            except RETRYABLE as exc:
+                if attempt == len(self.retry_delays):
+                    raise
+                delay = self.retry_delays[attempt]
+                logger.warning("kg.write.retry step=%s attempt=%d wait=%ss err=%s",
+                               label, attempt + 1, delay, type(exc).__name__)
+                time.sleep(delay)
 
     def ensure_schema(self) -> None:
         for statement in SCHEMA_STATEMENTS:
@@ -245,28 +270,44 @@ class GraphBuilder:
             "kg_rejected": graph.stats["rejected"],
         }
 
-        def work(tx: Any) -> None:
-            _delete_in_tx(tx, graph.document_id)
-            tx.run(Q_UPSERT_DOCUMENT, document_id=graph.document_id,
-                   document_name=document_name, status=status, now=_now(), stats=stats).consume()
-            if chunk_rows:
-                tx.run(Q_WRITE_CHUNKS, document_id=graph.document_id, rows=chunk_rows).consume()
-            if entity_rows:
-                tx.run(Q_ADOPT_LEGACY_ENTITIES, rows=entity_rows).consume()
-                tx.run(Q_WRITE_ENTITIES, rows=entity_rows).consume()
-            if rel_rows:
-                tx.run(Q_WRITE_RELATIONSHIPS, rows=rel_rows).consume()
+        doc_id = graph.document_id
 
-        with self.client.session() as session:
-            session.execute_write(work)
-        logger.info("kg.write.done document_id=%s stats=%s", graph.document_id, stats)
+        if len(chunk_rows) <= self.batch_size:
+            # small document: replace everything in one atomic transaction
+            def work(tx: Any) -> None:
+                _delete_in_tx(tx, doc_id)
+                _upsert_document(tx, doc_id, document_name, status, stats)
+                _write_rows(tx, doc_id, chunk_rows, entity_rows, rel_rows)
+
+            self._write(work, "document")
+        else:
+            # large document: clear old facts, then write in batches. The document stays
+            # "writing" until the last batch succeeds, so a half-written graph is visible.
+            self._write(lambda tx: (_delete_in_tx(tx, doc_id),
+                                    _upsert_document(tx, doc_id, document_name, "writing",
+                                                     stats)), "reset")
+            for i in range(0, len(chunk_rows), self.batch_size):
+                batch = chunk_rows[i:i + self.batch_size]
+                self._write(lambda tx, b=batch: _write_rows(tx, doc_id, b, [], []),
+                            f"chunks {i}-{i + len(batch)}")
+            for i in range(0, len(entity_rows), self.batch_size):
+                batch = entity_rows[i:i + self.batch_size]
+                self._write(lambda tx, b=batch: _write_rows(tx, doc_id, [], b, []),
+                            f"entities {i}")
+            for i in range(0, len(rel_rows), self.batch_size):
+                batch = rel_rows[i:i + self.batch_size]
+                self._write(lambda tx, b=batch: _write_rows(tx, doc_id, [], [], b),
+                            f"relationships {i}")
+            self._write(lambda tx: _upsert_document(tx, doc_id, document_name, status, stats),
+                        "finish")
+
+        logger.info("kg.write.done document_id=%s stats=%s", doc_id, stats)
         return stats
 
     def delete_document(self, document_id: str) -> None:
         """Remove a document's chunks, its evidence on shared relationships,
         and any entities no other document still mentions."""
-        with self.client.session() as session:
-            session.execute_write(lambda tx: _delete_in_tx(tx, document_id))
+        self._write(lambda tx: _delete_in_tx(tx, document_id), "delete")
         logger.info("kg.delete.done document_id=%s", document_id)
 
 
@@ -279,3 +320,19 @@ def _delete_in_tx(tx: Any, document_id: str) -> None:
     tx.run(Q_DELETE_DOCUMENT, document_id=document_id).consume()
     if entity_ids:
         tx.run(Q_DELETE_ORPHAN_ENTITIES, entity_ids=entity_ids).consume()
+
+
+def _upsert_document(tx: Any, doc_id: str, name: str, status: str, stats: dict) -> None:
+    tx.run(Q_UPSERT_DOCUMENT, document_id=doc_id, document_name=name, status=status,
+           now=_now(), stats=stats).consume()
+
+
+def _write_rows(tx: Any, doc_id: str, chunk_rows: list, entity_rows: list,
+                rel_rows: list) -> None:
+    if chunk_rows:
+        tx.run(Q_WRITE_CHUNKS, document_id=doc_id, rows=chunk_rows).consume()
+    if entity_rows:
+        tx.run(Q_ADOPT_LEGACY_ENTITIES, rows=entity_rows).consume()
+        tx.run(Q_WRITE_ENTITIES, rows=entity_rows).consume()
+    if rel_rows:
+        tx.run(Q_WRITE_RELATIONSHIPS, rows=rel_rows).consume()

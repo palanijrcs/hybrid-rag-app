@@ -135,7 +135,10 @@ def get_document_graph_status(
         graph_status = builder.get_status(document_id)
     except Exception:
         logger.exception("Could not read graph status for %s", document_id)
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Neo4j is unreachable.")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Could not read the graph status from Neo4j. Check the backend log for details.",
+        )
     return graph_status or {"document_id": document_id, "kg_status": "not_built"}
 
 

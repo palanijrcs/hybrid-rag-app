@@ -389,3 +389,60 @@ def test_delete_removes_graph_facts(graph_api):
     doc_id = _upload(client)["document"]["document_id"]
     assert client.delete(f"/documents/{doc_id}").status_code == 200
     assert graph_store.deleted == [doc_id]
+
+
+# ---------------------------------------------------------------- resilience (tnsc_act.pdf failure)
+class FlakyClient(FakeClient):
+    """Fails the first `failures` transactions with the real AuraDB error."""
+
+    def __init__(self, failures):
+        super().__init__()
+        self.failures = failures
+        self.attempts = 0
+
+    @contextmanager
+    def session(self):
+        from neo4j.exceptions import ServiceUnavailable
+
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise ServiceUnavailable("Unable to retrieve routing information")
+        yield FakeSession(self.tx)
+
+
+def test_dropped_connection_is_retried():
+    client = FlakyClient(failures=2)
+    graph, chunks = make_graph("d")
+    GraphBuilder(client, retry_delays=(0, 0, 0)).write_document(graph, chunks)
+    assert client.attempts == 3 and client.tx.queries  # succeeded on the 3rd try
+
+
+def test_gives_up_after_all_retries():
+    from neo4j.exceptions import ServiceUnavailable
+
+    client = FlakyClient(failures=10)
+    graph, chunks = make_graph("d")
+    with pytest.raises(ServiceUnavailable):
+        GraphBuilder(client, retry_delays=(0, 0)).write_document(graph, chunks)
+    assert client.attempts == 3
+
+
+def test_large_document_is_written_in_batches():
+    class CountingClient(FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.transactions = 0
+
+        @contextmanager
+        def session(self):
+            self.transactions += 1
+            yield FakeSession(self.tx)
+
+    client = CountingClient()
+    graph, chunks = make_graph("big")
+    many_chunks = [dict(chunks[0], chunk_id=f"big_chunk_{i}") for i in range(5)]
+    GraphBuilder(client, batch_size=2).write_document(graph, many_chunks)
+    # reset + 3 chunk batches (2+2+1) + 2 entity batches (2+1) + 2 relationship batches + finish
+    assert client.transactions == 9
+    statuses = [p["status"] for q, p in client.tx.queries if "d += $stats" in q]
+    assert statuses == ["writing", "done"]  # half-written graph is never marked done
