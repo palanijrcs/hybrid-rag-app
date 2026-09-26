@@ -145,3 +145,34 @@ class GraphSearchResponse(BaseModel):
     query: str
     matched_entities: list[GraphEntityMatch] = Field(default_factory=list)
     evidence: list[GraphEvidenceResult] = Field(default_factory=list)
+
+
+class QueryRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000)
+
+
+class SourceCitation(BaseModel):
+    ref: int
+    label: str
+    document_id: str
+    document_name: str
+    page_number: int | None = None
+    chunk_id: str
+    retrievers: list[str]
+    rerank_score: float | None = None
+    text: str
+
+
+class QueryResponse(BaseModel):
+    question: str
+    answer: str
+    grounded: bool
+    insufficient_evidence: bool
+    sources: list[SourceCitation] = Field(default_factory=list)
+    retrieval: dict[str, int] = Field(default_factory=dict)
+    model: str | None = None
+    timings_ms: dict[str, int] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+    coverage: str | None = None
+    question_subject: str | None = None
+    sources_subject: str | None = None

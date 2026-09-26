@@ -6,6 +6,8 @@ from app.knowledge_graph.graph_indexer import GraphIndexer
 from app.knowledge_graph.graph_retriever import GraphRetriever
 from app.knowledge_graph.neo4j_client import Neo4jClient
 from functools import lru_cache
+from app.llm.client import OpenAIChatClient
+from app.llm.grounded_generation import GroundedQA
 from app.retrieval.context_builder import ContextBuilder
 from app.retrieval.hybrid_retriever import HybridRetriever
 from app.retrieval.reranker import CrossEncoderReranker
@@ -135,4 +137,23 @@ def get_graph_retriever() -> GraphRetriever | None:
         max_seed_entities=kg_settings.kg_max_seed_entities,
         min_entity_match=kg_settings.kg_min_entity_match,
         max_facts=kg_settings.kg_max_facts,
+    )
+
+
+@lru_cache
+def get_chat_client() -> OpenAIChatClient | None:
+    """The answering LLM; None when no API key is configured."""
+    settings = get_settings()
+    key = settings.openai_api_key.get_secret_value()
+    return OpenAIChatClient(api_key=key, model=settings.llm_model) if key else None
+
+
+def get_grounded_qa() -> GroundedQA:
+    settings = get_settings()
+    return GroundedQA(
+        retriever=get_hybrid_retriever(),
+        context_builder=get_context_builder(),
+        llm=get_chat_client(),
+        graph_retriever=get_graph_retriever() if settings.enable_kg_retrieval else None,
+        kg_top_k=settings.kg_top_k,
     )

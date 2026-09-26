@@ -4,7 +4,7 @@ import logging
 
 from fastapi import FastAPI
 
-from app.api import routes_documents, routes_search
+from app.api import routes_documents, routes_query, routes_search
 from app.core.config import get_settings
 from app.core.dependencies import get_graph_builder, get_neo4j_client
 
@@ -24,6 +24,7 @@ app = FastAPI(
 
 app.include_router(routes_documents.router)
 app.include_router(routes_search.router)
+app.include_router(routes_query.router)
 
 
 @app.on_event("startup")
