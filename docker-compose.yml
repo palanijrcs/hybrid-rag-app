@@ -1,3 +1,4 @@
+name: hybrid-rag-app
 # Phase 20: backend + frontend.  From the project root:
 #   docker compose up -d --build        (production-style)
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build   (live reload)
@@ -11,7 +12,7 @@ services:
       UPLOAD_DIR: data/uploads
       FAISS_INDEX_PATH: data/faiss
     ports:
-      - "8000:8000"
+      - "${BACKEND_BIND:-8000}:8000"     # VPS: 127.0.0.1:8100 (private)
     volumes:
       - ./data:/app/data                 # uploads, FAISS, chunks survive restarts
       - ./evaluation:/app/evaluation     # golden dataset + saved runs
@@ -26,7 +27,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000   # container-to-container name
     ports:
-      - "8501:8501"
+      - "${FRONTEND_BIND:-8501}:8501"    # VPS: 127.0.0.1:8601 (nginx in front)
     depends_on:
       backend:
         condition: service_healthy
