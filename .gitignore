@@ -22,3 +22,9 @@ logs/
 # Editor / OS files
 .vscode/
 Thumbs.db
+.coverage
+htmlcov/
+.idea/
+.DS_Store
+.env.*
+!.env.example

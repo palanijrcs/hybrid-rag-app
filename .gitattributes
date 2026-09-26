@@ -1,0 +1,6 @@
+# Consistent line endings on Windows, Linux (Docker, CI) and the VPS
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.pdf binary
+*.png binary
+*.jpg binary
