@@ -152,3 +152,19 @@ def test_mentioned_only_banner_not_repeated_when_answer_has_note():
             "answer": "Note: the uploaded documents are about PM-KMY. They mention PM-KISAN "
                       "only in passing.\n\nContributions can be paid ... [1]."}
     assert not any("only mention" in b.message for b in status_banners(resp))
+
+
+def test_public_mode_hides_upload_delete_and_settings(fake_backend, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("PUBLIC_MODE", "true")
+    at = AppTest.from_file(str(FRONTEND / "app.py"), default_timeout=30).run()
+    assert not at.exception
+    assert len(at.text_input) == 0                         # no Backend URL box
+    assert not any(b.label == "Delete" for b in at.button)
+    assert not any("Upload" in s.value for s in at.sidebar.subheader)
+    assert any("PM-KMY.pdf" in m.value for m in at.sidebar.markdown)   # documents still listed
+
+    at.chat_input[0].set_value("How much pension will farmers get?").run()
+    assert ("POST", "http://localhost:8000/query",
+            {"question": "How much pension will farmers get?"}) in fake_backend

@@ -8,6 +8,8 @@ from components.answer_view import render_answer
 from services.api_client import ApiError, BackendClient
 
 DEFAULT_BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+# Public website: visitors can only ask questions (no upload, delete or backend settings)
+PUBLIC_MODE = os.getenv("PUBLIC_MODE", "false").strip().lower() in ("1", "true", "yes")
 SUPPORTED_TYPES = ["pdf", "docx", "txt", "md"]
 GRAPH_STATUS_ICON = {"done": "🕸️ graph ready", "partial": "🕸️ graph partial",
                      "processing": "⏳ building graph", "failed": "⚠️ graph failed",
@@ -20,12 +22,7 @@ if "messages" not in st.session_state:
 
 
 # ---------------- Sidebar ----------------
-with st.sidebar:
-    st.header("Settings")
-    backend_url = st.text_input("Backend URL", value=DEFAULT_BACKEND_URL).rstrip("/")
-    api = BackendClient(backend_url)
-
-    # ----- Status -----
+def render_backend_status(api: BackendClient) -> None:
     with st.expander("Backend status", expanded=False):
         if st.button("Check backend"):
             try:
@@ -38,14 +35,12 @@ with st.sidebar:
             except ApiError as error:
                 st.error(str(error))
 
-    st.divider()
 
-    # ----- Upload -----
+def render_upload(api: BackendClient) -> None:
     st.subheader("Upload a document")
     uploaded = st.file_uploader(
         "Choose a file", type=SUPPORTED_TYPES, accept_multiple_files=False
     )
-
     if uploaded is not None and st.button("Ingest document", type="primary"):
         with st.spinner(f"Ingesting {uploaded.name}..."):
             try:
@@ -54,9 +49,8 @@ with st.sidebar:
             except ApiError as error:
                 (st.warning if error.status_code == 409 else st.error)(str(error))
 
-    st.divider()
 
-    # ----- Document list -----
+def render_documents(api: BackendClient, can_delete: bool) -> list[dict]:
     st.subheader("Documents")
     try:
         documents = api.list_documents()
@@ -78,12 +72,27 @@ with st.sidebar:
                 f"{document['page_count']} page(s) · {document['chunk_count']} chunks · "
                 f"{document['file_type']}" + (f" · {graph_text}" if graph_text else "")
             )
-            if st.button("Delete", key=f"del_{document['document_id']}"):
+            if can_delete and st.button("Delete", key=f"del_{document['document_id']}"):
                 try:
                     api.delete(document["document_id"])
                 except ApiError as error:
                     st.error(str(error))
                 st.rerun()
+    return documents
+
+
+with st.sidebar:
+    if PUBLIC_MODE:
+        api = BackendClient(DEFAULT_BACKEND_URL)
+    else:
+        st.header("Settings")
+        api = BackendClient(st.text_input("Backend URL", value=DEFAULT_BACKEND_URL).rstrip("/"))
+        render_backend_status(api)
+        st.divider()
+        render_upload(api)
+        st.divider()
+
+    documents = render_documents(api, can_delete=not PUBLIC_MODE)
 
     if st.session_state.messages and st.button("Clear conversation"):
         st.session_state.messages = []
